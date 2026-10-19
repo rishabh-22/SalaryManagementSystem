@@ -1,0 +1,33 @@
+# UNTESTED: written without access to Docker; verify with `docker compose up --build`.
+# Required: JWT_SECRET (e.g. `JWT_SECRET=$(openssl rand -hex 32) docker compose up --build`).
+services:
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: sqlite:////data/salary.db
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET to a long random string}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8080,http://localhost:5173}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-Admin#12345}
+      SEED_HR_PASSWORD: ${SEED_HR_PASSWORD:-HrManager#12345}
+      SEED_VIEWER_PASSWORD: ${SEED_VIEWER_PASSWORD:-Viewer#12345}
+    volumes:
+      - salary-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/api/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  salary-data:

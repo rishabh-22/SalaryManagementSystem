@@ -15,6 +15,7 @@ import {
 } from '@mui/material'
 import { useAuth } from '../auth/AuthContext'
 import { label } from '../lib/format'
+import { ChatWidget } from './ChatWidget'
 
 const navButtonSx = {
   color: 'inherit',
@@ -76,6 +77,7 @@ export function Layout() {
       <Container maxWidth="xl" sx={{ py: 3 }} component="main">
         <Outlet />
       </Container>
+      <ChatWidget />
     </Box>
   )
 }

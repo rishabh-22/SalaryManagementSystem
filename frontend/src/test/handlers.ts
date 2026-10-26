@@ -156,6 +156,12 @@ export const handlers: RequestHandler[] = [
 
   http.get('/api/meta', () => HttpResponse.json(meta)),
 
+  http.post('/api/chat', async ({ request }) => {
+    const { messages } = (await request.json()) as { messages: { content: string }[] }
+    const last = messages[messages.length - 1].content
+    return HttpResponse.json({ reply: `You asked: ${last}`, tools_used: [] })
+  }),
+
   http.get('/api/employees', ({ request }) => {
     const url = new URL(request.url)
     const page = Number(url.searchParams.get('page') ?? 1)

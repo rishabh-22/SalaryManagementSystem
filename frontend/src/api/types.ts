@@ -31,6 +31,16 @@ export interface TokenResponse {
   token_type: string
 }
 
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ChatResponse {
+  reply: string
+  tools_used: string[]
+}
+
 export interface UserCreate {
   email: string
   full_name: string

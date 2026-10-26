@@ -2,6 +2,8 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { api } from './client'
 import { qk } from './queryKeys'
 import type {
+  ChatMessage,
+  ChatResponse,
   CountryInsights,
   Distribution,
   Employee,
@@ -38,6 +40,12 @@ export const useMeta = () =>
     queryKey: qk.meta,
     queryFn: async () => (await api.get<Meta>('/meta')).data,
     staleTime: Infinity,
+  })
+
+export const useChat = () =>
+  useMutation({
+    mutationFn: async (messages: ChatMessage[]) =>
+      (await api.post<ChatResponse>('/chat', { messages })).data,
   })
 
 // ---- employees

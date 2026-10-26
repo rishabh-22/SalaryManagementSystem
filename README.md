@@ -119,6 +119,12 @@ After seeding, log in with:
 - **Salary Distribution:** Histogram with configurable bins.
 - **Outliers:** Employees whose pay deviates >30% from their job-title median (pay equity analysis).
 
+### Chat Assistant
+- An "Ask AI" bubble (bottom-right, signed-in pages only) opens a chat window. Ask in plain language, e.g. "salary of employee 42", "average pay in India", "average pay for Software Engineer" or "who got a salary revision last quarter?".
+- Given a name instead of an id, the assistant looks up matching employees and asks you to pick one when there are several.
+- Powered by Claude through a tool-use loop over read-only database tools; it cannot change data. All roles can use it (they can already read the same data).
+- Setup: `cp backend/.env.example backend/.env` and set `ANTHROPIC_API_KEY` (and optionally `CHAT_MODEL`, default `claude-haiku-5-5`). Restart the backend. Without a key the chat replies "Chat is not configured" and the rest of the app works normally. With Docker Compose, export `ANTHROPIC_API_KEY` before `docker compose up`.
+
 ### User Management (Admin Only)
 - Create, edit (role, active status), delete users.
 - Admin cannot delete/deactivate/change own role (prevents lock-out).
@@ -322,6 +328,7 @@ docker compose up --build
 - `JWT_SECRET` — Secret key for JWT signing (required in production; dev default in code).
 - `CORS_ORIGINS` — Comma-separated origins (default: `http://localhost:5173`).
 - `SEED_ADMIN_PASSWORD`, `SEED_HR_PASSWORD`, `SEED_VIEWER_PASSWORD` — Override demo passwords.
+- `ANTHROPIC_API_KEY` — Enables the chat assistant (empty = chat disabled). `CHAT_MODEL` — Claude model (default `claude-haiku-5-5`).
 
 ### Production (Future)
 

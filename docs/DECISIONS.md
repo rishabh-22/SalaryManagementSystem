@@ -156,3 +156,17 @@ For production systems with millions of rows or sub-millisecond latency requirem
 - Server-side filtering ensures large datasets don't overwhelm the client.
 
 **Trade-off:** Export of very large datasets (100k+ rows) could timeout. For now, we assume CSV export is used for targeted, filtered subsets.
+
+## 16. Chat Assistant: Tool-Use Loop, Read-Only Tools, Stateless Server
+
+**Decision:** `POST /api/chat` runs a plain Claude tool-use loop (`anthropic` SDK) over a fixed set of read-only tools that reuse the existing services. The client sends the conversation history with every request; the server stores nothing. Replies are a single JSON response, not streamed.
+
+**Why:**
+- A hand-written loop is small, easy to test with a fake client, and lets us control exactly what the model can touch. The heavier Agent SDK runs a separate runtime and adds deployment weight we do not need for database Q&A.
+- No raw SQL tool and no write tools: the assistant can only call functions we wrote, so it cannot modify or over-read data. Every role can use it because every role can already read the same data through the REST API.
+- Stateless history avoids a conversation table, retention questions and session handling. History is capped (20 messages, 2000 characters each) to bound cost.
+- "Last quarter" is computed in code (`previous_quarter`) and exposed as a tool, so the model never guesses dates. Pay figures are returned per country with their own currency, preserving the no-mixed-currencies rule.
+- Name lookups return up to 10 candidates and the prompt tells the model to ask the user to pick when several match, rather than guess.
+- The default model is `claude-haiku-5-5` (cheap, fast); it is configurable with `CHAT_MODEL`.
+
+**Trade-off:** No streaming, so long answers appear all at once after a "Thinking" indicator. The API key lives in `backend/.env` (git-ignored) and the endpoint returns 503 when it is unset. Anthropic failures return a generic 502 so provider details never reach the browser. Conversation text is sent to Anthropic, so the data it can reach (names, salaries) leaves the system on each question; synthetic data makes this safe for the assessment, but a real deployment needs a data-processing review.

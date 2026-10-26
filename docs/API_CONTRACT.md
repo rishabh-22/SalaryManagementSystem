@@ -148,6 +148,13 @@ Equal-width bins between min and max; each bin is `[lower, upper)` except the la
 ```
 `deviation = (salary - job_title_median) / job_title_median` (signed, rounded to 4 dp). An employee is an outlier when `abs(deviation) > threshold`. Only job titles with **at least 3 active employees** in that country are evaluated (avoids noise). Sorted by `abs(deviation)` descending, then `employee_id`.
 
+### Chat
+- `POST /api/chat` (any authenticated role). Stateless: the client sends the conversation so far.
+  Body: `{"messages": [{"role": "user" | "assistant", "content": "..."}]}` — 1–20 messages, each 1–2000 non-blank characters, and the last one must be from `user` (else 422).
+  -> `200 {"reply": "...", "tools_used": ["search_employees", "get_employee_salary"]}`
+  - `503 {"detail": "Chat is not configured"}` when `ANTHROPIC_API_KEY` is empty; `502 {"detail": "The assistant is unavailable right now"}` when the Anthropic call fails.
+- The reply comes from a Claude tool-use loop (model from `CHAT_MODEL`, at most `CHAT_MAX_TOOL_ITERATIONS` model calls). Tools are read-only: `search_employees`, `get_employee_salary`, `get_salary_history`, `get_average_pay` (by country and/or job title, per country in local currency), `list_salary_revisions` (by `effective_date` range), `get_current_date` (today and the previous calendar quarter). Tool failures are returned to the model as error results, not as HTTP errors.
+
 ## 3. Seed script
 `python -m scripts.seed [--reset] [--count 10000]`, run from `backend/`.
 - Deterministic (`random.Random(42)`, `Faker.seed(42)`); 10,000 employees by default, spread across all 8 countries; ~95% active.

@@ -91,6 +91,26 @@ def country_insights(db: Session, code: str) -> dict:
     }
 
 
+def pay_by_job_title(db: Session, job_title: str, country_code: str | None = None) -> dict:
+    """Pay summary for one job title; one entry per country so currencies never mix."""
+    stmt = select(Employee.country_code, Employee.salary).where(
+        _ACTIVE, func.lower(Employee.job_title) == job_title.strip().lower()
+    )
+    if country_code:
+        stmt = stmt.where(Employee.country_code == _require_country(country_code))
+    grouped = _group(db.execute(stmt).all())
+    items = [
+        {
+            "country_code": code,
+            "currency": COUNTRIES[code]["currency"],
+            "summary": stats.summarize(salaries),
+        }
+        for code, salaries in grouped.items()
+    ]
+    items.sort(key=lambda i: (-i["summary"]["headcount"], i["country_code"]))
+    return {"job_title": job_title.strip(), "by_country": items}
+
+
 def distribution(db: Session, code: str, bins: int) -> dict:
     code = _require_country(code)
     salaries = list(db.scalars(_active_in_country(code, Employee.salary)).all())

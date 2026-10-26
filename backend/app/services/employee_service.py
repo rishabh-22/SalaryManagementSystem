@@ -227,3 +227,21 @@ def salary_history(db: Session, employee_id: int) -> list[SalaryChange]:
         .order_by(SalaryChange.effective_date.desc(), SalaryChange.id.desc())
     )
     return list(db.scalars(stmt).all())
+
+
+def salary_revisions(
+    db: Session, start: date, end: date, country_code: str | None, limit: int
+) -> tuple[list[tuple[SalaryChange, Employee]], int]:
+    """Salary changes with effective_date in [start, end], newest first, plus the total count."""
+    stmt = (
+        select(SalaryChange, Employee)
+        .join(Employee, Employee.id == SalaryChange.employee_id)
+        .where(SalaryChange.effective_date >= start, SalaryChange.effective_date <= end)
+    )
+    if country_code:
+        stmt = stmt.where(Employee.country_code == country_code.upper())
+    total = db.scalar(select(func.count()).select_from(stmt.order_by(None).subquery())) or 0
+    rows = db.execute(
+        stmt.order_by(SalaryChange.effective_date.desc(), SalaryChange.id.desc()).limit(limit)
+    ).all()
+    return [(change, employee) for change, employee in rows], total

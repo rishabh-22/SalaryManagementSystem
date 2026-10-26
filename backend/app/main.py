@@ -2,7 +2,7 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import auth, employees, insights, meta, users
+from app.api.routes import auth, chat, employees, insights, meta, users
 from app.core.config import settings
 from app.core.errors import (
     BusinessRuleError,
@@ -49,7 +49,7 @@ def create_app() -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    for module in (meta, auth, users, employees, insights):
+    for module in (meta, auth, users, employees, insights, chat):
         api.include_router(module.router)
     application.include_router(api)
     return application

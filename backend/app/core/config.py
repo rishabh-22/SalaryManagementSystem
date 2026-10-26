@@ -15,6 +15,12 @@ class Settings(BaseSettings):
     # Comma-separated list of allowed origins.
     CORS_ORIGINS: str = "http://localhost:5173"
 
+    # Chat assistant. An empty key disables /api/chat (503); the rest of the app is unaffected.
+    ANTHROPIC_API_KEY: str = ""
+    CHAT_MODEL: str = "claude-haiku-5-5"
+    CHAT_MAX_TOKENS: int = 1024
+    CHAT_MAX_TOOL_ITERATIONS: int = 6
+
     @field_validator("JWT_SECRET")
     @classmethod
     def validate_jwt_secret(cls, v: str) -> str:

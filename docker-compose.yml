@@ -10,8 +10,11 @@ services:
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-Admin#12345}
       SEED_HR_PASSWORD: ${SEED_HR_PASSWORD:-HrManager#12345}
       SEED_VIEWER_PASSWORD: ${SEED_VIEWER_PASSWORD:-Viewer#12345}
+      USE_ANTHROPIC_KEY: ${USE_ANTHROPIC_KEY:-false}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      CHAT_MODEL: ${CHAT_MODEL:-claude-haiku-5-5}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-haiku-5-5}
     volumes:
       - salary-data:/data
     healthcheck:

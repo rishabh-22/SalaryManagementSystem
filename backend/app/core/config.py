@@ -15,9 +15,14 @@ class Settings(BaseSettings):
     # Comma-separated list of allowed origins.
     CORS_ORIGINS: str = "http://localhost:5173"
 
-    # Chat assistant. An empty key disables /api/chat (503); the rest of the app is unaffected.
+    # Chat assistant. USE_ANTHROPIC_KEY picks the provider: true -> Anthropic, otherwise OpenAI.
+    # An empty key for the selected provider disables /api/chat (503); the rest of the app is
+    # unaffected.
+    USE_ANTHROPIC_KEY: bool = False
     ANTHROPIC_API_KEY: str = ""
-    CHAT_MODEL: str = "claude-haiku-5-5"
+    ANTHROPIC_MODEL: str = "claude-haiku-5-5"
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-4o"
     CHAT_MAX_TOKENS: int = 1024
     CHAT_MAX_TOOL_ITERATIONS: int = 6
 

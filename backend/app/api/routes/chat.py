@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.api.deps import CurrentUser, DbSession
 from app.schemas.chat import ChatRequest, ChatResponse
-from app.services import chat_agent
+from app.services import chat_agent, chat_llm
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -11,9 +11,9 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 def chat(body: ChatRequest, _: CurrentUser, db: DbSession):
     try:
         reply, tools_used = chat_agent.answer(db, body.messages)
-    except chat_agent.ChatNotConfiguredError:
+    except chat_llm.ChatNotConfiguredError:
         raise HTTPException(status_code=503, detail="Chat is not configured") from None
-    except chat_agent.ChatUpstreamError:
+    except chat_llm.ChatUpstreamError:
         raise HTTPException(
             status_code=502, detail="The assistant is unavailable right now"
         ) from None

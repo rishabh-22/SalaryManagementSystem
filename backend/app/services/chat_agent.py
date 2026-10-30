@@ -1,37 +1,26 @@
-"""Chat agent: a Claude tool-use loop over the read-only tools in chat_tools."""
+"""Chat agent: an LLM tool-use loop over the read-only tools in chat_tools.
+
+The provider (Anthropic or OpenAI) is chosen in chat_llm; this loop is provider-neutral.
+"""
 
 from __future__ import annotations
 
 import json
 from datetime import date
 
-import anthropic
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.reference import COUNTRIES, DEPARTMENTS, TITLE_DEPARTMENT
 from app.schemas.chat import ChatMessage
-from app.services.chat_tools import TOOL_ERRORS, TOOL_SCHEMAS, run_tool
+from app.services import chat_llm
+from app.services.chat_llm import ToolCall, ToolResult
+from app.services.chat_tools import TOOL_ERRORS, run_tool
 
-_REQUEST_TIMEOUT_SECONDS = 30
 _FALLBACK_REPLY = (
     "I couldn't finish looking that up. Please try a more specific question, "
     "for example by giving an employee id or a country."
 )
-
-
-class ChatNotConfiguredError(Exception):
-    """ANTHROPIC_API_KEY is not set."""
-
-
-class ChatUpstreamError(Exception):
-    """The Anthropic API call failed."""
-
-
-def get_anthropic_client() -> anthropic.Anthropic:
-    return anthropic.Anthropic(
-        api_key=settings.ANTHROPIC_API_KEY, timeout=_REQUEST_TIMEOUT_SECONDS, max_retries=1
-    )
 
 
 def build_system_prompt(today: date) -> str:
@@ -73,53 +62,35 @@ truncated.
 """
 
 
-def _reply_text(content: list) -> str:
-    return "\n".join(b.text for b in content if getattr(b, "type", None) == "text").strip()
-
-
-def _execute_tool(db: Session, name: str, args: dict, today: date) -> dict:
+def _execute_tool(db: Session, call: ToolCall, today: date) -> ToolResult:
+    if call.error:
+        return ToolResult(call, json.dumps({"error": call.error}), True)
     try:
-        return {"content": json.dumps(run_tool(db, name, args, today)), "is_error": False}
+        return ToolResult(call, json.dumps(run_tool(db, call.name, call.input, today)), False)
     except TOOL_ERRORS as exc:
         message = getattr(exc, "message", None) or str(exc)
-        return {"content": json.dumps({"error": message}), "is_error": True}
+        return ToolResult(call, json.dumps({"error": message}), True)
 
 
 def answer(
     db: Session, messages: list[ChatMessage], today: date | None = None
 ) -> tuple[str, list[str]]:
     """Run the agent loop. Returns (reply, names of tools used)."""
-    if not settings.ANTHROPIC_API_KEY:
-        raise ChatNotConfiguredError
     today = today or date.today()
-    client = get_anthropic_client()
-    system = build_system_prompt(today)
-    convo: list[dict] = [{"role": m.role, "content": m.content} for m in messages]
+    session = chat_llm.create_session(
+        build_system_prompt(today), [{"role": m.role, "content": m.content} for m in messages]
+    )
     tools_used: list[str] = []
 
     for _ in range(settings.CHAT_MAX_TOOL_ITERATIONS):
-        try:
-            response = client.messages.create(
-                model=settings.CHAT_MODEL,
-                max_tokens=settings.CHAT_MAX_TOKENS,
-                system=system,
-                tools=TOOL_SCHEMAS,
-                messages=convo,
-            )
-        except anthropic.APIError as exc:
-            raise ChatUpstreamError from exc
+        turn = session.step()
+        if not turn.tool_calls:
+            return turn.text or _FALLBACK_REPLY, tools_used
 
-        if response.stop_reason != "tool_use":
-            return _reply_text(response.content) or _FALLBACK_REPLY, tools_used
-
-        convo.append({"role": "assistant", "content": response.content})
         results = []
-        for block in response.content:
-            if getattr(block, "type", None) != "tool_use":
-                continue
-            tools_used.append(block.name)
-            outcome = _execute_tool(db, block.name, block.input, today)
-            results.append({"type": "tool_result", "tool_use_id": block.id, **outcome})
-        convo.append({"role": "user", "content": results})
+        for call in turn.tool_calls:
+            tools_used.append(call.name)
+            results.append(_execute_tool(db, call, today))
+        session.add_tool_results(results)
 
     return _FALLBACK_REPLY, tools_used

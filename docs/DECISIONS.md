@@ -159,7 +159,7 @@ For production systems with millions of rows or sub-millisecond latency requirem
 
 ## 16. Chat Assistant: Tool-Use Loop, Read-Only Tools, Stateless Server
 
-**Decision:** `POST /api/chat` runs a plain Claude tool-use loop (`anthropic` SDK) over a fixed set of read-only tools that reuse the existing services. The client sends the conversation history with every request; the server stores nothing. Replies are a single JSON response, not streamed.
+**Decision:** `POST /api/chat` runs a plain LLM tool-use loop over a fixed set of read-only tools that reuse the existing services. The client sends the conversation history with every request; the server stores nothing. Replies are a single JSON response, not streamed.
 
 **Why:**
 - A hand-written loop is small, easy to test with a fake client, and lets us control exactly what the model can touch. The heavier Agent SDK runs a separate runtime and adds deployment weight we do not need for database Q&A.
@@ -167,6 +167,6 @@ For production systems with millions of rows or sub-millisecond latency requirem
 - Stateless history avoids a conversation table, retention questions and session handling. History is capped (20 messages, 2000 characters each) to bound cost.
 - "Last quarter" is computed in code (`previous_quarter`) and exposed as a tool, so the model never guesses dates. Pay figures are returned per country with their own currency, preserving the no-mixed-currencies rule.
 - Name lookups return up to 10 candidates and the prompt tells the model to ask the user to pick when several match, rather than guess.
-- The default model is `claude-haiku-5-5` (cheap, fast); it is configurable with `CHAT_MODEL`.
+- The provider is a feature flag: `USE_ANTHROPIC_KEY=true` uses the Anthropic SDK (`ANTHROPIC_MODEL`, default `claude-haiku-5-5`); otherwise the OpenAI SDK with `OPENAI_MODEL` (default `gpt-4o`). Each provider sits behind a small session adapter in `chat_llm.py` (it keeps its native message format and tool-call shape), so the loop, system prompt, tools and HTTP contract are shared and tool schemas are defined once. OpenAI is the default when the flag is unset, per the requirement; a setup that only has an Anthropic key must set the flag. Only the selected provider's key is checked, so a stray key for the other provider never enables chat.
 
-**Trade-off:** No streaming, so long answers appear all at once after a "Thinking" indicator. The API key lives in `backend/.env` (git-ignored) and the endpoint returns 503 when it is unset. Anthropic failures return a generic 502 so provider details never reach the browser. Conversation text is sent to Anthropic, so the data it can reach (names, salaries) leaves the system on each question; synthetic data makes this safe for the assessment, but a real deployment needs a data-processing review.
+**Trade-off:** No streaming, so long answers appear all at once after a "Thinking" indicator. The API key lives in `backend/.env` (git-ignored) and the endpoint returns 503 when it is unset. Provider failures return a generic 502 so provider details never reach the browser. Conversation text is sent to the selected provider (OpenAI or Anthropic), so the data it can reach (names, salaries) leaves the system on each question; synthetic data makes this safe for the assessment, but a real deployment needs a data-processing review.

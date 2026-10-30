@@ -152,8 +152,8 @@ Equal-width bins between min and max; each bin is `[lower, upper)` except the la
 - `POST /api/chat` (any authenticated role). Stateless: the client sends the conversation so far.
   Body: `{"messages": [{"role": "user" | "assistant", "content": "..."}]}` — 1–20 messages, each 1–2000 non-blank characters, and the last one must be from `user` (else 422).
   -> `200 {"reply": "...", "tools_used": ["search_employees", "get_employee_salary"]}`
-  - `503 {"detail": "Chat is not configured"}` when `ANTHROPIC_API_KEY` is empty; `502 {"detail": "The assistant is unavailable right now"}` when the Anthropic call fails.
-- The reply comes from a Claude tool-use loop (model from `CHAT_MODEL`, at most `CHAT_MAX_TOOL_ITERATIONS` model calls). Tools are read-only: `search_employees`, `get_employee_salary`, `get_salary_history`, `get_average_pay` (by country and/or job title, per country in local currency), `list_salary_revisions` (by `effective_date` range), `get_current_date` (today and the previous calendar quarter). Tool failures are returned to the model as error results, not as HTTP errors.
+  - `503 {"detail": "Chat is not configured"}` when the selected provider's API key is empty (`OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` when `USE_ANTHROPIC_KEY=true`); `502 {"detail": "The assistant is unavailable right now"}` when the provider call fails.
+- The reply comes from an LLM tool-use loop, at most `CHAT_MAX_TOOL_ITERATIONS` model calls. The provider is chosen by `USE_ANTHROPIC_KEY`: `true` = Anthropic (`ANTHROPIC_MODEL`), otherwise OpenAI (`OPENAI_MODEL`, default `gpt-4o`). The request and response shapes are identical for both. Tools are read-only: `search_employees`, `get_employee_salary`, `get_salary_history`, `get_average_pay` (by country and/or job title, per country in local currency), `list_salary_revisions` (by `effective_date` range), `get_current_date` (today and the previous calendar quarter). Tool failures are returned to the model as error results, not as HTTP errors.
 
 ## 3. Seed script
 `python -m scripts.seed [--reset] [--count 10000]`, run from `backend/`.

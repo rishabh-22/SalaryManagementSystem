@@ -21,9 +21,10 @@ Plan: `.claude/plans/PLAN.md`. Requirements: `docs/REQUIREMENTS.md`.
 - Seed: `cd backend && python -m scripts.seed --reset`
 
 ## Chat assistant
-- `POST /api/chat` runs a Claude tool-use loop (`services/chat_agent.py`) over read-only tools (`services/chat_tools.py`). It never writes.
-- Config lives in `backend/.env` (git-ignored; template in `backend/.env.example`): `ANTHROPIC_API_KEY`, `CHAT_MODEL`. Never commit the key.
-- Tests fake the Anthropic client (`get_anthropic_client`); no test may call the real API.
+- `POST /api/chat` runs an LLM tool-use loop (`services/chat_agent.py`) over read-only tools (`services/chat_tools.py`). It never writes.
+- Provider adapters live in `services/chat_llm.py`: `USE_ANTHROPIC_KEY=true` -> Anthropic, otherwise OpenAI (`gpt-4o`).
+- Config lives in `backend/.env` (git-ignored; template in `backend/.env.example`): `USE_ANTHROPIC_KEY`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`. Never commit keys.
+- Tests fake the provider clients (`chat_llm.get_openai_client` / `get_anthropic_client`); no test may call a real API.
 
 ## Git
 - Branch `master`, remote `origin` (GitHub). Port 22 is blocked, so push with

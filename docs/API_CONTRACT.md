@@ -173,7 +173,7 @@ Equal-width bins between min and max; each bin is `[lower, upper)` except the la
 - `app.main`: `create_app() -> FastAPI` and module-level `app`. Routers mounted under `/api`.
 - `app.db.base.Base` (SQLAlchemy `DeclarativeBase`); `app.models` imports all models (`User`, `Employee`, `SalaryChange`) so `Base.metadata.create_all` works.
 - `app.db.session`: `get_db()` FastAPI dependency yielding a `Session`; tests override it with an in-memory SQLite engine (`StaticPool`, `check_same_thread=False`).
-- `app.core.config.settings` (pydantic-settings): `DATABASE_URL` (default `sqlite:///./salary.db`), `JWT_SECRET`, `JWT_ALGORITHM` (HS256), `ACCESS_TOKEN_EXPIRE_MINUTES` (60), `CORS_ORIGINS`.
+- `app.core.config.settings` (pydantic-settings): `DATABASE_URL` (defaults to `backend/salary.db`, independent of the launch directory), `JWT_SECRET`, `JWT_ALGORITHM` (HS256), `ACCESS_TOKEN_EXPIRE_MINUTES` (60), `CORS_ORIGINS`.
 - `app.core.security`: `hash_password(plain) -> str`, `verify_password(plain, hashed) -> bool`, `create_access_token(subject: str, role: str, expires_delta: timedelta | None = None) -> str`, `decode_access_token(token) -> dict` (raises on invalid or expired).
 - `app.core.reference`: `COUNTRIES` (code -> name/currency), `DEPARTMENTS`, `JOB_TITLES`.
 - `app.services.stats` (pure functions, no DB): `summarize(values: list[float]) -> dict` returning exactly the `Summary` keys (`headcount`, `min`, `p25`, `median`, `p75`, `max`, `mean`, `total_payroll`; empty input -> headcount 0, rest `None`); `histogram(values: list[float], bins: int) -> list[dict]` with `lower/upper/count`; `deviation(salary: float, median: float) -> float`.

@@ -23,17 +23,22 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 ```
 
+**Initialize the local database:**
+```bash
+python -m scripts.seed
+```
+Run this once before the first local login to create the schema and demo users; it also
+generates 10,000 employees in ~5 seconds. Use `--reset` only when you want to replace
+the existing employee data.
+
+The default database is `backend/salary.db`, regardless of the directory used to launch
+the API. To use a different database, set `DATABASE_URL`.
+
 **Run API:**
 ```bash
 uvicorn app.main:app --reload
 ```
 OpenAPI docs at `http://localhost:8000/docs`.
-
-**Seed database:**
-```bash
-python -m scripts.seed --reset
-```
-Generates 10,000 employees in ~5 seconds.
 
 **Run tests:**
 ```bash

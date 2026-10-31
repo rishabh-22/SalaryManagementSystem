@@ -1,14 +1,18 @@
 import os
 from typing import Literal
+from pathlib import Path
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_BACKEND_DIR = Path(__file__).resolve().parents[2]
+_DEFAULT_DATABASE_PATH = _BACKEND_DIR / "salary.db"
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=_BACKEND_DIR / ".env", extra="ignore")
 
-    DATABASE_URL: str = "sqlite:///./salary.db"
+    DATABASE_URL: str = f"sqlite:///{_DEFAULT_DATABASE_PATH}"
     # Dev-only default; compose requires an explicit value.
     JWT_SECRET: str = "dev-only-insecure-secret-change-me-in-production"
     JWT_ALGORITHM: str = "HS256"

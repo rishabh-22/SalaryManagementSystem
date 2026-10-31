@@ -22,9 +22,9 @@ Plan: `.claude/plans/PLAN.md`. Requirements: `docs/REQUIREMENTS.md`.
 
 ## Chat assistant
 - `POST /api/chat` runs an LLM tool-use loop (`services/chat_agent.py`) over read-only tools (`services/chat_tools.py`). It never writes.
-- Provider adapters live in `services/chat_llm.py`: `USE_ANTHROPIC_KEY=true` -> Anthropic, otherwise OpenAI (`gpt-4o`).
-- Config lives in `backend/.env` (git-ignored; template in `backend/.env.example`): `USE_ANTHROPIC_KEY`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`. Never commit keys.
-- Tests fake the provider clients (`chat_llm.get_openai_client` / `get_anthropic_client`); no test may call a real API.
+- Provider adapters live in `services/chat_llm.py`: `AGENT_PROVIDER` = `openai` (`gpt-4o`), `anthropic` or `gemini`; empty disables chat (503); any other value fails startup (validated in `core/config.py`).
+- Config lives in `backend/.env` (git-ignored; template in `backend/.env.example`): `AGENT_PROVIDER`, `OPENAI_API_KEY`/`OPENAI_MODEL`, `ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL`, `GEMINI_API_KEY`/`GEMINI_MODEL`. Never commit keys.
+- Tests fake the provider clients (`chat_llm.get_openai_client` / `get_anthropic_client` / `get_gemini_client`); no test may call a real API.
 
 ## Git
 - Branch `master`, remote `origin` (GitHub). Port 22 is blocked, so push with

@@ -123,8 +123,8 @@ After seeding, log in with:
 - An "Ask AI" bubble (bottom-right, signed-in pages only) opens a chat window. Ask in plain language, e.g. "salary of employee 42", "average pay in India", "average pay for Software Engineer" or "who got a salary revision last quarter?".
 - Given a name instead of an id, the assistant looks up matching employees and asks you to pick one when there are several.
 - Powered by an LLM tool-use loop over read-only database tools; it cannot change data. All roles can use it (they can already read the same data).
-- Provider switch (`USE_ANTHROPIC_KEY` in `backend/.env`): `true` uses Anthropic (Claude, model `ANTHROPIC_MODEL`, default `claude-haiku-5-5`); anything else (the default) uses OpenAI (`OPENAI_MODEL`, default `gpt-4o`).
-- Setup: `cp backend/.env.example backend/.env`, then set `OPENAI_API_KEY` (default provider) or set `USE_ANTHROPIC_KEY=true` and `ANTHROPIC_API_KEY`. Restart the backend. If the selected provider's key is empty the chat replies "Chat is not configured" and the rest of the app works normally. With Docker Compose, export the same variables before `docker compose up`.
+- Provider switch (`AGENT_PROVIDER` in `backend/.env`): `openai` (`OPENAI_MODEL`, default `gpt-4o`), `anthropic` (Claude, `ANTHROPIC_MODEL`, default `claude-haiku-5-5`) or `gemini` (`GEMINI_MODEL`, default `gemini-2.5-flash`). Empty (the default) disables the chat. Any other value stops the backend at startup with an error listing the supported values.
+- Setup: `cp backend/.env.example backend/.env`, then set `AGENT_PROVIDER` and that provider's key (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY` or `GEMINI_API_KEY`). Restart the backend. If `AGENT_PROVIDER` is empty or the selected provider's key is empty the chat replies "Chat is not configured" and the rest of the app works normally. With Docker Compose, export the same variables before `docker compose up`.
 
 ### User Management (Admin Only)
 - Create, edit (role, active status), delete users.
@@ -329,10 +329,11 @@ docker compose up --build
 - `JWT_SECRET` — Secret key for JWT signing (required in production; dev default in code).
 - `CORS_ORIGINS` — Comma-separated origins (default: `http://localhost:5173`).
 - `SEED_ADMIN_PASSWORD`, `SEED_HR_PASSWORD`, `SEED_VIEWER_PASSWORD` — Override demo passwords.
-- `USE_ANTHROPIC_KEY` — Chat provider flag: `true` = Anthropic, otherwise OpenAI (default `false`).
+- `AGENT_PROVIDER` — Chat provider: `openai`, `anthropic`, `gemini`, or empty to disable (default). Any other value fails startup.
 - `OPENAI_API_KEY`, `OPENAI_MODEL` — Chat via OpenAI (model default `gpt-4o`).
 - `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` — Chat via Anthropic (model default `claude-haiku-5-5`).
-- An empty key for the selected provider disables the chat assistant.
+- `GEMINI_API_KEY`, `GEMINI_MODEL` — Chat via Google Gemini (model default `gemini-2.5-flash`).
+- An empty `AGENT_PROVIDER`, or an empty key for the selected provider, disables the chat assistant.
 
 ### Production (Future)
 

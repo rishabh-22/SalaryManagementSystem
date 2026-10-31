@@ -1,22 +1,32 @@
 """Chat API tests. Every provider scenario runs against scripted fake clients (no network)."""
 
 import json
+import os
+import subprocess
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import anthropic
 import httpx
 import openai
 import pytest
+from google.genai import errors as genai_errors
+from google.genai import types as genai_types
+from pydantic import ValidationError
 
 from app.core.config import Settings, settings
 from app.services import chat_llm
 from app.services.chat_tools import TOOL_SCHEMAS
 
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+
 
 class FakeLLM:
     """Returns scripted responses in order (repeating the last) and records every call.
 
-    Exposes both the Anthropic (`messages.create`) and OpenAI (`chat.completions.create`) shapes.
+    Exposes the Anthropic (`messages.create`), OpenAI (`chat.completions.create`) and Gemini
+    (`models.generate_content`) shapes.
     """
 
     def __init__(self, *scripted, error: Exception | None = None):
@@ -25,9 +35,12 @@ class FakeLLM:
         self.calls: list[dict] = []
         self.messages = SimpleNamespace(create=self._create)
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+        self.models = SimpleNamespace(generate_content=self._create)
 
     def _create(self, **kwargs):
-        self.calls.append({**kwargs, "messages": list(kwargs["messages"])})
+        # Snapshot the growing conversation (Anthropic/OpenAI: messages, Gemini: contents).
+        key = "contents" if "contents" in kwargs else "messages"
+        self.calls.append({**kwargs, key: list(kwargs[key])})
         if self.error:
             raise self.error
         index = min(len(self.calls), len(self.scripted)) - 1
@@ -43,7 +56,7 @@ class AnthropicProvider:
     upstream_error = anthropic.APIConnectionError(request=_request())
 
     def configure(self, monkeypatch, fake):
-        monkeypatch.setattr(settings, "USE_ANTHROPIC_KEY", True)
+        monkeypatch.setattr(settings, "AGENT_PROVIDER", "anthropic")
         monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "test-key")
         monkeypatch.setattr(chat_llm, "get_anthropic_client", lambda: fake)
 
@@ -84,7 +97,7 @@ class OpenAIProvider:
     upstream_error = openai.APIConnectionError(request=_request())
 
     def configure(self, monkeypatch, fake):
-        monkeypatch.setattr(settings, "USE_ANTHROPIC_KEY", False)
+        monkeypatch.setattr(settings, "AGENT_PROVIDER", "openai")
         monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-key")
         monkeypatch.setattr(chat_llm, "get_openai_client", lambda: fake)
 
@@ -131,7 +144,61 @@ class OpenAIProvider:
         return list(reversed(trailing))
 
 
-@pytest.fixture(params=[AnthropicProvider(), OpenAIProvider()], ids=lambda p: p.name)
+class GeminiProvider:
+    name = "gemini"
+    upstream_error = genai_errors.APIError(500, {"error": {"message": "boom"}})
+
+    def configure(self, monkeypatch, fake):
+        monkeypatch.setattr(settings, "AGENT_PROVIDER", "gemini")
+        monkeypatch.setattr(settings, "GEMINI_API_KEY", "test-key")
+        monkeypatch.setattr(chat_llm, "get_gemini_client", lambda: fake)
+
+    def _response(self, *parts: genai_types.Part):
+        content = genai_types.Content(role="model", parts=list(parts))
+        return genai_types.GenerateContentResponse(
+            candidates=[genai_types.Candidate(content=content)]
+        )
+
+    def text(self, value: str):
+        return self._response(genai_types.Part(text=value))
+
+    def tool(self, name: str, tool_input: dict, block_id: str | None = "tu_1"):
+        call = genai_types.FunctionCall(id=block_id, name=name, args=tool_input)
+        return self._response(genai_types.Part(function_call=call))
+
+    def model(self, call: dict) -> str:
+        return call["model"]
+
+    def tool_names(self, call: dict) -> set[str]:
+        [tool] = call["config"].tools
+        return {d.name for d in tool.function_declarations}
+
+    def system(self, call: dict) -> str:
+        return call["config"].system_instruction
+
+    def history(self, call: dict) -> list[dict]:
+        return [
+            {"role": "assistant" if c.role == "model" else "user", "content": c.parts[0].text}
+            for c in call["contents"]
+        ]
+
+    def tool_results(self, call: dict) -> list[dict]:
+        results = []
+        for part in call["contents"][-1].parts:
+            response = part.function_response.response
+            results.append(
+                {
+                    "id": part.function_response.id or part.function_response.name,
+                    "payload": response.get("result", response),
+                    "is_error": "error" in response,
+                }
+            )
+        return results
+
+
+@pytest.fixture(
+    params=[AnthropicProvider(), OpenAIProvider(), GeminiProvider()], ids=lambda p: p.name
+)
 def provider(request):
     return request.param
 
@@ -159,55 +226,84 @@ def test_requires_authentication(client):
 
 
 @pytest.mark.parametrize(
-    ("use_anthropic", "anthropic_key", "openai_key"),
+    ("agent_provider", "keys"),
     [
-        (False, "", ""),
-        (True, "", ""),
-        (False, "only-anthropic-key", ""),
-        (True, "", "only-openai-key"),
+        ("", {}),
+        ("", {"OPENAI_API_KEY": "k", "ANTHROPIC_API_KEY": "k", "GEMINI_API_KEY": "k"}),
+        ("openai", {}),
+        ("anthropic", {}),
+        ("gemini", {}),
+        ("openai", {"ANTHROPIC_API_KEY": "k", "GEMINI_API_KEY": "k"}),
+        ("anthropic", {"OPENAI_API_KEY": "k", "GEMINI_API_KEY": "k"}),
+        ("gemini", {"OPENAI_API_KEY": "k", "ANTHROPIC_API_KEY": "k"}),
     ],
 )
-def test_503_when_selected_providers_key_is_missing(
-    client, viewer_h, monkeypatch, use_anthropic, anthropic_key, openai_key
+def test_503_when_no_provider_or_selected_providers_key_is_missing(
+    client, viewer_h, monkeypatch, agent_provider, keys
 ):
-    monkeypatch.setattr(settings, "USE_ANTHROPIC_KEY", use_anthropic)
-    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", anthropic_key)
-    monkeypatch.setattr(settings, "OPENAI_API_KEY", openai_key)
+    monkeypatch.setattr(settings, "AGENT_PROVIDER", agent_provider)
+    for name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.setattr(settings, name, keys.get(name, ""))
     res = ask(client, viewer_h)
     assert res.status_code == 503
     assert res.json() == {"detail": "Chat is not configured"}
 
 
-def test_provider_defaults_to_openai_gpt_4o(monkeypatch):
-    monkeypatch.delenv("USE_ANTHROPIC_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_MODEL", raising=False)
+def test_defaults_disable_chat_and_set_model_names(monkeypatch):
+    for name in ("AGENT_PROVIDER", "OPENAI_MODEL", "GEMINI_MODEL"):
+        monkeypatch.delenv(name, raising=False)
     defaults = Settings(_env_file=None)
-    assert defaults.USE_ANTHROPIC_KEY is False
+    assert defaults.AGENT_PROVIDER == ""
     assert defaults.OPENAI_MODEL == "gpt-4o"
+    assert defaults.GEMINI_MODEL == "gemini-2.5-flash"
 
 
-def test_flag_routes_to_one_provider_only(client, viewer_h, monkeypatch):
+@pytest.mark.parametrize("value", ["openai", "anthropic", "gemini", "", " Gemini ", "OPENAI"])
+def test_supported_agent_providers_are_accepted_and_normalised(value):
+    assert value.strip().lower() == Settings(_env_file=None, AGENT_PROVIDER=value).AGENT_PROVIDER
+
+
+@pytest.mark.parametrize("value", ["gemni", "claude", "true", "none"])
+def test_unsupported_agent_provider_fails_fast(value):
+    with pytest.raises(ValidationError, match="AGENT_PROVIDER"):
+        Settings(_env_file=None, AGENT_PROVIDER=value)
+
+
+def test_unsupported_agent_provider_stops_app_startup():
+    env = {**os.environ, "AGENT_PROVIDER": "gemni"}
+    result = subprocess.run(
+        [sys.executable, "-c", "import app.main"],
+        capture_output=True,
+        text=True,
+        cwd=BACKEND_DIR,
+        env=env,
+    )
+    assert result.returncode != 0
+    assert "AGENT_PROVIDER" in result.stderr
+
+
+def test_agent_provider_routes_to_one_provider_only(client, viewer_h, monkeypatch):
     def forbidden():
-        raise AssertionError("the other provider must not be used")
+        raise AssertionError("another provider must not be used")
 
-    openai_fake = FakeLLM(OpenAIProvider().text("from openai"))
-    anthropic_fake = FakeLLM(AnthropicProvider().text("from anthropic"))
-    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "a-key")
-    monkeypatch.setattr(settings, "OPENAI_API_KEY", "o-key")
+    providers = {
+        "openai": OpenAIProvider(),
+        "anthropic": AnthropicProvider(),
+        "gemini": GeminiProvider(),
+    }
+    fakes = {name: FakeLLM(p.text(f"from {name}")) for name, p in providers.items()}
+    for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.setattr(settings, key, "k")
 
-    monkeypatch.setattr(settings, "USE_ANTHROPIC_KEY", True)
-    monkeypatch.setattr(chat_llm, "get_anthropic_client", lambda: anthropic_fake)
-    monkeypatch.setattr(chat_llm, "get_openai_client", forbidden)
-    assert ask(client, viewer_h).json()["reply"] == "from anthropic"
-    assert openai_fake.calls == []
-
-    monkeypatch.setattr(settings, "USE_ANTHROPIC_KEY", False)
-    monkeypatch.setattr(chat_llm, "get_anthropic_client", forbidden)
-    monkeypatch.setattr(chat_llm, "get_openai_client", lambda: openai_fake)
-    assert ask(client, viewer_h).json()["reply"] == "from openai"
+    for selected in providers:
+        for name, fake in fakes.items():
+            factory = (lambda f=fake: f) if name == selected else forbidden
+            monkeypatch.setattr(chat_llm, f"get_{name}_client", factory)
+        monkeypatch.setattr(settings, "AGENT_PROVIDER", selected)
+        assert ask(client, viewer_h).json()["reply"] == f"from {selected}"
 
 
-# ---- the agent loop (runs for both providers)
+# ---- the agent loop (runs for every provider)
 
 
 def test_plain_answer_without_tools(client, viewer_h, use_fake, provider):
@@ -216,9 +312,11 @@ def test_plain_answer_without_tools(client, viewer_h, use_fake, provider):
     assert res.status_code == 200
     assert res.json() == {"reply": "Hello! Ask me about pay.", "tools_used": []}
     call = fake.calls[0]
-    expected_model = (
-        settings.ANTHROPIC_MODEL if provider.name == "anthropic" else "gpt-4o"
-    )
+    expected_model = {
+        "anthropic": settings.ANTHROPIC_MODEL,
+        "openai": "gpt-4o",
+        "gemini": settings.GEMINI_MODEL,
+    }[provider.name]
     assert provider.model(call) == expected_model
     assert provider.tool_names(call) >= {"search_employees", "get_average_pay"}
     assert "Today's date is" in provider.system(call)
@@ -290,9 +388,7 @@ def test_iteration_cap_stops_runaway_loop(client, viewer_h, use_fake, provider, 
     assert res.json()["tools_used"] == ["get_current_date"] * 3
 
 
-def test_upstream_failure_maps_to_502_without_leaking_details(
-    client, viewer_h, use_fake, provider
-):
+def test_upstream_failure_maps_to_502_without_leaking_details(client, viewer_h, use_fake, provider):
     use_fake(error=provider.upstream_error)
     res = ask(client, viewer_h)
     assert res.status_code == 502
@@ -420,3 +516,92 @@ def test_openai_non_object_arguments_become_an_error_result(
     assert ask(client, viewer_h).status_code == 200
     [result] = openai_provider.tool_results(fake.calls[1])
     assert result["is_error"] is True
+
+
+# ---- Gemini wire format
+
+
+@pytest.fixture()
+def gemini_provider():
+    return GeminiProvider()
+
+
+@pytest.fixture()
+def use_gemini(monkeypatch, gemini_provider):
+    def _use(*scripted) -> FakeLLM:
+        fake = FakeLLM(*scripted)
+        gemini_provider.configure(monkeypatch, fake)
+        return fake
+
+    return _use
+
+
+def test_gemini_receives_declarations_from_tool_schemas(
+    client, viewer_h, use_gemini, gemini_provider
+):
+    fake = use_gemini(gemini_provider.text("ok"))
+    ask(client, viewer_h)
+    config = fake.calls[0]["config"]
+    [tool] = config.tools
+    declared = [
+        (d.name, d.description, d.parameters_json_schema) for d in tool.function_declarations
+    ]
+    assert declared == [(t["name"], t["description"], t["input_schema"]) for t in TOOL_SCHEMAS]
+    assert config.max_output_tokens == settings.CHAT_MAX_TOKENS
+
+
+def test_gemini_automatic_function_calling_is_disabled(
+    client, viewer_h, use_gemini, gemini_provider
+):
+    fake = use_gemini(gemini_provider.text("ok"))
+    ask(client, viewer_h)
+    assert fake.calls[0]["config"].automatic_function_calling.disable is True
+
+
+def test_gemini_tool_round_trip_message_shapes(
+    client, viewer_h, use_gemini, gemini_provider, make_employee
+):
+    e = make_employee()
+    fake = use_gemini(
+        gemini_provider.tool("get_employee_salary", {"employee_id": e.id}, "call_9"),
+        gemini_provider.text("done"),
+    )
+    ask(client, viewer_h)
+    _, model_turn, tool_turn = fake.calls[1]["contents"]
+    assert model_turn.role == "model"
+    assert model_turn.parts[0].function_call.name == "get_employee_salary"
+    assert tool_turn.role == "user"
+    response = tool_turn.parts[0].function_response
+    assert (response.id, response.name) == ("call_9", "get_employee_salary")
+    assert response.response["result"]["employee_id"] == e.id
+
+
+def test_gemini_calls_without_ids_still_round_trip(client, viewer_h, use_gemini, gemini_provider):
+    fake = use_gemini(
+        gemini_provider.tool("get_current_date", {}, block_id=None), gemini_provider.text("done")
+    )
+    res = ask(client, viewer_h)
+    assert res.json()["tools_used"] == ["get_current_date"]
+    response = fake.calls[1]["contents"][-1].parts[0].function_response
+    assert response.id is None
+    assert response.name == "get_current_date"
+
+
+def test_gemini_parallel_calls_keep_their_order(client, viewer_h, use_gemini, gemini_provider):
+    def call(name, args):
+        return genai_types.Part(function_call=genai_types.FunctionCall(name=name, args=args))
+
+    parts = [call("get_current_date", {}), call("get_employee_salary", {"employee_id": 999})]
+    fake = use_gemini(gemini_provider._response(*parts), gemini_provider.text("done"))
+    ask(client, viewer_h)
+    sent = fake.calls[1]["contents"][-1].parts
+    assert [p.function_response.name for p in sent] == ["get_current_date", "get_employee_salary"]
+    assert "error" in sent[1].function_response.response
+
+
+def test_gemini_blocked_response_uses_fallback_reply(client, viewer_h, use_gemini):
+    use_gemini(genai_types.GenerateContentResponse(candidates=[]))
+    res = ask(client, viewer_h)
+    assert res.status_code == 200
+    assert res.json()["reply"]
+    assert res.json()["tools_used"] == []
